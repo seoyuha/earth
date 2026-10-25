@@ -1,6 +1,370 @@
-<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Earth Board Game · 교사 통합 대시보드</title><style>
-*{box-sizing:border-box}body{font-family:system-ui,'Malgun Gothic',sans-serif;margin:0;background:#eff8f5;color:#193b39}header{background:#116a58;color:white;padding:23px 5%;}h1{margin:0;font-size:27px}main{max-width:1320px;margin:auto;padding:22px}.card{background:white;border-radius:17px;padding:22px;box-shadow:0 5px 20px #143e3220;margin-bottom:16px}button,select{font:inherit;border-radius:10px;padding:11px 15px}button{background:#168c6e;color:white;border:0;cursor:pointer;font-weight:700}button:disabled{opacity:.4}select{border:1px solid #b5d5cd}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}.group{border-top:6px solid #19a07b}.flex{display:flex;gap:12px;align-items:center;flex-wrap:wrap;justify-content:space-between}.code{font-size:27px;font-weight:900;letter-spacing:2px;color:#126957}.muted{color:#627a77}.stat{font-size:25px;font-weight:800}.bar{height:9px;border-radius:12px;background:#e6f0ed;overflow:hidden}.bar>div{height:100%;background:#20a783}.student{display:flex;justify-content:space-between;border-bottom:1px solid #e4eeeb;padding:9px 0}.hide{display:none}.error{color:#c03744}.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:12px}.summary>div{background:#e9f8f0;padding:14px;border-radius:12px}a{color:#126957}#notice{margin-top:10px}small{color:#667e79}@media(max-width:600px){main{padding:10px}.card{padding:15px}}
-</style></head><body><header><h1>🌍 Earth Board Game · 교사용 통합 현황판</h1><div>6학년 영어 12단원 · We Should Save the World</div></header><main><section id="setup" class="card"><h2>우리 반 모둠방 만들기</h2><p>모둠 수를 선택하면 각 모둠에 별도의 방 코드가 발급됩니다. 학생들은 <a href="/" target="_blank">학생용 게임 화면</a>에서 각자 해당 코드를 입력합니다.</p><label>모둠 수 <select id="count"><option>4</option><option selected>5</option><option>6</option><option>7</option><option>8</option></select></label> <button id="create">모둠방 한 번에 생성</button><div id="notice"></div></section><section id="dashboard" class="hide"><div class="card"><div class="flex"><div><h2>📊 우리 반 실시간 점수 현황</h2><span class="muted">교사용 학급 코드: </span><strong id="classCode"></strong></div><div><button id="startAll">🚀 입장한 모둠 전체 시작</button> <button id="copyCodes">📋 모둠 코드 복사</button></div></div><p class="muted">이 페이지는 교사용입니다. 교사용 접속 링크를 학생에게 공유하지 마세요. 학생은 각 모둠의 방 코드로 접속합니다.</p><div class="summary" id="summary"></div></div><div id="groups" class="grid"></div><div class="card"><h2>🏅 모둠 순위</h2><div id="ranking"></div><small>모둠별 참여 인원이 다를 수 있으므로 평균 점수를 함께 표시합니다. 동점은 공동 순위로 확인하세요.</small></div></section></main><script src="/socket.io/socket.io.js"></script><script>
-const socket=io(),$=x=>document.getElementById(x);let current=null,credentials=null;const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));function showError(t){$('notice').innerHTML='<span class="error">'+esc(t)+'</span>'}function enter(o){current=o;$('setup').classList.add('hide');$('dashboard').classList.remove('hide');render()}function render(){if(!current)return;let gs=current.groups,players=gs.flatMap(g=>g.players);$('classCode').textContent=current.classCode;$('summary').innerHTML=`<div>모둠 수<div class="stat">${gs.length}</div></div><div>접속 학생<div class="stat">${players.filter(p=>p.online).length}명</div></div><div>전체 획득 점수<div class="stat">${players.reduce((n,p)=>n+p.score,0)}점</div></div><div>완주 학생<div class="stat">${players.filter(p=>p.finished).length}명</div></div>`;$('groups').innerHTML=gs.map(g=>`<section class="card group"><div class="flex"><h2>${esc(g.name)}</h2><span>${g.finished?'🏁 종료':g.started?'🟢 진행 중':'🟡 대기 중'}</span></div><div>학생 입장 코드 <span class="code">${esc(g.code)}</span></div><div class="flex"><span>⭐ 합계 <b>${g.total}점</b></span><span>평균 <b>${g.average}점</b></span></div><p>참여 ${g.players.length}명 · 완주 ${g.completed}명 · 현재 차례 ${esc(g.turn)}</p><div class="bar"><div style="width:${g.players.length?100*g.completed/g.players.length:0}%"></div></div><div>${g.players.length?g.players.slice().sort((a,b)=>b.score-a.score).map(p=>`<div class="student"><span>${esc(p.name)} ${p.finished?'🏁':''} ${p.online?'':'⚪'}</span><strong>${p.score}점 · ${p.pos}/32</strong></div>`).join(''):'<p class="muted">학생 입장 대기 중</p>'}</div><p><button data-start="${esc(g.code)}" ${g.started||!g.players.length?'disabled':''}>▶ 이 모둠 시작</button></p></section>`).join('');document.querySelectorAll('[data-start]').forEach(b=>b.onclick=()=>socket.emit('startGroup',{code:b.dataset.start},r=>r.error&&alert(r.error)));let sorted=gs.slice().sort((a,b)=>b.average-a.average||b.total-a.total);$('ranking').innerHTML=sorted.map((g,i)=>`<div class="student"><span>${i+1}위 · ${esc(g.name)} (${g.players.length}명)</span><strong>평균 ${g.average}점 / 합계 ${g.total}점</strong></div>`).join('')}
-$('create').onclick=()=>socket.emit('createClass',{groups:Number($('count').value)},r=>{if(r.error)return showError(r.error);credentials={classCode:r.classCode,secret:r.secret};sessionStorage.setItem('earthTeacher',JSON.stringify(credentials));enter(r.overview)});$('startAll').onclick=()=>socket.emit('startAll',{},r=>alert(r.error||`${r.count}개 모둠의 게임을 시작했습니다.`));$('copyCodes').onclick=()=>{let t=current.groups.map(g=>`${g.name}: ${g.code}`).join('\n');navigator.clipboard?.writeText(t).then(()=>alert('모둠 코드를 복사했습니다.')).catch(()=>prompt('모둠 코드',t))};socket.on('overview',o=>{current=o;render()});socket.on('connect',()=>{let c=credentials;try{c=c||JSON.parse(sessionStorage.getItem('earthTeacher'))}catch{}if(c)socket.emit('teacherReconnect',c,r=>{if(r.ok){credentials=c;enter(r.overview)}else{sessionStorage.removeItem('earthTeacher');showError('서버가 재시작되어 학급방이 사라졌습니다. 새로 생성해 주세요.')}})});socket.on('disconnect',()=>{if(current)document.title='연결 확인 중 · 교사 현황판'});
-</script></body></html>
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>교사 관리 화면 · We Should Save the World</title>
+<link rel="preload" as="font" type="font/woff2" href="fonts/NanumSquareRoundEB.woff2" crossorigin>
+<style>
+@font-face{font-family:'NanumSquareRound';src:url(fonts/NanumSquareRoundB.woff2) format('woff2');font-weight:800 700;font-display:swap}
+@font-face{font-family:'NanumSquareRound';src:url(fonts/NanumSquareRoundEB.woff2) format('woff2');font-weight:800 900;font-display:swap}
+:root{--wood-d:#6b3d17;--ink:#2d2214;--navy:#1f3550;--f:'NanumSquareRound','Malgun Gothic','Apple SD Gothic Neo',system-ui,sans-serif;font-family:var(--f);font-weight:800;color:var(--ink)}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:#5fae6a}
+#bgimg{position:fixed;inset:0;background:url(assets/bg.webp) center/cover;z-index:-1}
+button,select,input{font:inherit}
+button{cursor:pointer}
+b,strong{font-weight:900}
+.hidden{display:none!important}
+.wrap{max-width:1480px;margin:0 auto;padding:10px 16px 40px}
+
+/* 헤더 */
+.head{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:14px}
+.head .logo{height:118px;filter:drop-shadow(0 5px 8px rgba(0,0,0,.35))}
+.titlebar{justify-self:center;position:relative}
+.titleplank{display:inline-block;font-size:clamp(28px,3.6vw,48px);color:#fff;padding:8px 46px 12px;border-radius:18px;border:4px solid var(--wood-d);
+  background:repeating-linear-gradient(100deg,#c27b3f 0 18px,#b06a30 18px 30px,#c98545 30px 52px);
+  text-shadow:0 3px 0 #4f2c0f,0 0 1px #4f2c0f;box-shadow:inset 0 3px 0 rgba(255,255,255,.3),0 6px 0 #4f2c0f,0 12px 20px rgba(0,0,0,.3)}
+.titlebar .leaf{position:absolute;width:86px;top:-12px}
+.homebtn{display:flex;align-items:center;gap:8px;color:#fff;text-decoration:none;font-size:20px;padding:8px 18px 8px 8px;border-radius:16px;border:3px solid var(--wood-d);
+  background:linear-gradient(#d0874a,#a35f28);box-shadow:inset 0 2px 0 rgba(255,255,255,.3),0 4px 0 #4f2c0f;text-shadow:0 2px 0 #4f2c0f}
+.homebtn img{width:44px}
+.tabs{display:flex;gap:14px;justify-content:center;margin:10px 0 26px;flex-wrap:wrap}
+.tab{display:flex;align-items:center;gap:10px;font-size:24px;color:#fff;padding:10px 26px 10px 12px;border-radius:18px;border:3px solid #0f1e33;
+  background:linear-gradient(#3e5f8c,#22395a);box-shadow:inset 0 3px 0 rgba(255,255,255,.25),0 5px 0 #0c1626;text-shadow:0 2px 0 rgba(0,0,0,.4);transition:transform .1s}
+.tab img,.tab svg{width:44px;height:44px}
+.tab.on{background:linear-gradient(#ffcf3f,#f59a12);border-color:#9a5a00;color:#fff;box-shadow:inset 0 3px 0 rgba(255,255,255,.5),0 5px 0 #8a4f00,0 0 0 4px #fff3b0;text-shadow:0 2px 0 #9a5a00}
+.tab:active{transform:translateY(3px)}
+
+/* 패널 */
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:30px;align-items:start}
+.panel{position:relative;border:9px solid transparent;border-radius:26px;margin-bottom:30px;
+  background:linear-gradient(#fffaf0,#f7ecd4) padding-box,repeating-linear-gradient(100deg,#b8743a 0 14px,#a8662f 14px 22px,#bf7d42 22px 40px) border-box;
+  box-shadow:0 0 0 3px var(--wood-d),0 8px 0 3px #4f2c0f,0 18px 28px rgba(0,0,0,.35)}
+.phead{display:flex;align-items:center;gap:12px;padding:10px 16px;margin:-1px -1px 0;border-radius:17px 17px 0 0;
+  background:repeating-linear-gradient(100deg,#c98545 0 16px,#b8743a 16px 26px);border-bottom:4px solid var(--wood-d)}
+.phead h2{margin:0;font-weight:800;font-size:28px;color:#fff;text-shadow:0 3px 0 #4f2c0f,0 0 2px #4f2c0f}
+.phead img.ic{width:46px}
+.phead .sp{flex:1}
+.pbody{padding:16px}
+.panel>.leaf{position:absolute;pointer-events:none;z-index:2}
+
+/* 표 */
+table{width:100%;border-collapse:separate;border-spacing:0;border-radius:14px;overflow:hidden;background:#fff;box-shadow:0 2px 0 #e1cfa6}
+th{background:var(--navy);color:#fff;font-weight:800;font-size:18px;padding:10px 6px}
+td{text-align:center;padding:8px 6px;font-size:18px;border-top:1px solid #efe3c9}
+tbody tr:nth-child(even) td{background:#fbf6ea}
+tr.sel td{background:#fff3b6!important}
+td.l{text-align:left;padding-left:14px}
+.code{font-size:20px;letter-spacing:2px;color:#174d9a}
+.avt{width:46px;vertical-align:middle}
+.bar{height:20px;border-radius:12px;background:#d3e6f7;border:2px solid #b7cfe6;overflow:hidden;min-width:90px}
+.bar>div{height:100%;border-radius:10px;transition:width .5s}
+.st{display:inline-block;padding:4px 14px;border-radius:12px;color:#fff;font-size:17px;box-shadow:inset 0 2px 0 rgba(255,255,255,.35),0 2px 0 rgba(0,0,0,.25)}
+.st.run{background:linear-gradient(#5fd15a,#2a9c31)}.st.wait{background:linear-gradient(#c6ccd6,#8f99a8)}.st.end{background:linear-gradient(#7aa8ff,#3d6fd6)}
+.txt-on{color:#1f9a32}.txt-off{color:#9aa4b2}.txt-fin{color:#d07a00}
+.sbtn{border:3px solid transparent;border-radius:12px;padding:5px 14px;color:#fff;font-size:17px;text-shadow:0 2px 0 rgba(0,0,0,.25);margin:2px;transition:transform .1s}
+.sbtn:active{transform:translateY(2px)}
+.sbtn:disabled{filter:grayscale(1) opacity(.5);cursor:not-allowed}
+.sbtn.blue{background:linear-gradient(#5aa8ff,#1f6fd6);border-color:#0f3f86;box-shadow:inset 0 2px 0 rgba(255,255,255,.4),0 3px 0 #0c3270}
+.sbtn.red{background:linear-gradient(#ff6f6a,#d42f2a);border-color:#7d1512;box-shadow:inset 0 2px 0 rgba(255,255,255,.4),0 3px 0 #6a1210}
+.sbtn.green{background:linear-gradient(#69dc5f,#23a52b);border-color:#13651a;box-shadow:inset 0 2px 0 rgba(255,255,255,.4),0 3px 0 #0f4d14}
+.sbtn.orange{background:linear-gradient(#ffc04a,#f08a0c);border-color:#8a4f00;box-shadow:inset 0 2px 0 rgba(255,255,255,.45),0 3px 0 #7a4300}
+.sbtn.gray{background:linear-gradient(#a7b1c0,#6c788b);border-color:#3e4a5c;box-shadow:inset 0 2px 0 rgba(255,255,255,.35),0 3px 0 #333d4d}
+.sbtn.big{font-size:21px;padding:8px 20px;border-radius:15px}
+.info4{display:grid;grid-template-columns:repeat(4,1fr);gap:0;background:#fff;border-radius:14px;box-shadow:0 2px 0 #e1cfa6;margin-bottom:16px;overflow:hidden}
+.info4>div{padding:10px 14px;border-left:1px solid #efe3c9}
+.info4>div:first-child{border-left:0}
+.info4 small{display:block;color:#6d5a40;font-size:15px}
+.info4 b{font-weight:800;font-size:28px}
+.subhead{display:flex;align-items:center;gap:10px;background:var(--navy);color:#fff;border-radius:14px 14px 0 0;padding:8px 14px;font-size:21px;margin-top:6px}
+.subhead img{width:40px;margin:-10px 0}
+.subhead+table{border-radius:0 0 14px 14px}
+.empty{padding:26px;text-align:center;color:#7a6548;font-size:19px;background:#fff;border-radius:14px}
+.actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;margin-top:12px}
+.setup{max-width:760px;margin:0 auto}
+.setup p{font-size:19px;line-height:1.6;font-family:var(--f)}
+.setup select{font-size:22px;padding:8px 14px;border-radius:12px;border:3px solid #d8bb88}
+.imgbtn{background:none;border:0;padding:0;line-height:0;transition:transform .12s}
+.imgbtn img{height:62px}
+.imgbtn:active{transform:translateY(3px)}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+.stats>div{background:#fff;border-radius:16px;padding:12px 16px;display:flex;align-items:center;gap:12px;box-shadow:0 3px 0 #e1cfa6}
+.stats img{width:52px}
+.stats small{display:block;color:#6d5a40;font-size:15px}
+.stats b{font-weight:800;font-size:30px}
+.gemcell img{width:26px;vertical-align:-6px;margin-right:4px}
+
+/* 문제 관리 */
+.qtabs{display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.qtab{display:flex;align-items:center;gap:8px;background:#fff;border:3px solid #e1cfa6;border-radius:16px;padding:6px 16px 6px 6px;font-size:20px;box-shadow:0 3px 0 #d8bb88}
+.qtab img{height:58px}
+.qtab.on{border-color:#f59a12;background:#fff6d0;box-shadow:0 0 0 3px #ffe082,0 3px 0 #d39b00}
+.qtab .cnt{font-size:15px;color:#7a6548}
+td.qtext{text-align:left;font-family:var(--f);font-weight:800;font-size:16px;line-height:1.4}
+td.qtext .ok{color:#1f9a32}
+.switch{position:relative;width:58px;height:30px;border-radius:20px;border:3px solid #13651a;background:linear-gradient(#69dc5f,#23a52b);vertical-align:middle}
+.switch::after{content:"";position:absolute;top:2px;right:2px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.4);transition:.15s}
+.switch.off{background:linear-gradient(#c6ccd6,#8f99a8);border-color:#4e5868}
+.switch.off::after{right:30px}
+.qscroll{max-height:62vh;overflow:auto;border-radius:14px}
+.qscroll thead th{position:sticky;top:0;z-index:1}
+
+/* 모달 */
+.modal{position:fixed;inset:0;background:rgba(10,30,20,.55);display:flex;z-index:50;padding:16px;overflow:auto}
+.modal>.mbox{margin:auto}
+.mbox{width:min(620px,100%)}
+.mbox .pbody{font-size:19px}
+.mbox label{display:block;margin:12px 0 6px;color:#6b3d17}
+.mbox input[type=text],.mbox textarea{width:100%;font-size:18px;padding:10px 12px;border-radius:12px;border:3px solid #d8bb88;font-family:var(--f)}
+.mbox textarea{min-height:70px;resize:vertical}
+.mbox .hint{font-size:15px;color:#7a6548;font-family:var(--f)}
+.radios{display:flex;gap:16px;font-size:18px}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#fff8e6;border:3px solid var(--wood-d);border-radius:16px;padding:10px 20px;font-size:19px;box-shadow:0 4px 0 #4f2c0f;z-index:90;animation:tin .25s}
+@keyframes tin{from{opacity:0;transform:translate(-50%,16px)}}
+.crown{width:40px;vertical-align:middle}
+.settings p{font-family:var(--f);font-size:17px;line-height:1.6}
+.urlbox{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:22px;background:#fff;border-radius:14px;padding:10px 14px;border:2px dashed #d8bb88}
+@media(max-width:1100px){.grid2{grid-template-columns:1fr}.head{grid-template-columns:1fr;justify-items:center}.head .logo{height:90px}.stats{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:700px){.tab{font-size:18px;padding:6px 14px 6px 8px}.tab img,.tab svg{width:32px;height:32px}.info4{grid-template-columns:repeat(2,1fr)}th,td{font-size:15px}.hide-sm{display:none}}
+
+/* ── 굵은 둥근 글씨 + 외곽선 ── */
+.ol,.plank,.titleplank,.phead h2,.tab,.gbtn,.sbtn,.homebtn,.st,.pill,.step i,#dieNum,.char.on::after,.pcard.me::before,.pawn .tag,.choice .L{
+  --o:var(--ol,#4f2c0f);
+  text-shadow:2px 0 var(--o),-2px 0 var(--o),0 2px var(--o),0 -2px var(--o),1.5px 1.5px var(--o),-1.5px 1.5px var(--o),1.5px -1.5px var(--o),-1.5px -1.5px var(--o),0 3px 0 var(--o)}
+.titleplank{--ol:#4f2c0f;text-shadow:3px 0 #4f2c0f,-3px 0 #4f2c0f,0 3px #4f2c0f,0 -3px #4f2c0f,2px 2px #4f2c0f,-2px 2px #4f2c0f,2px -2px #4f2c0f,-2px -2px #4f2c0f,0 6px 0 #4f2c0f}
+.tab{--ol:#0c1626}.tab.on{--ol:#8a4f00}
+.gbtn,.sbtn.green{--ol:#0f4d14}.gbtn.blue,.sbtn.blue,.step i,.pcard.me::before,.pawn .tag{--ol:#0c3270}.gbtn.pink{--ol:#741a52}.gbtn.gray,.sbtn.gray{--ol:#333d4d}
+.sbtn.red{--ol:#6a1210}.sbtn.orange{--ol:#7a4300}.st.run,.pill.S,.char.on::after{--ol:#13651a}.st.wait{--ol:#4e5868}.st.end,.pill.W{--ol:#0f3f86}.pill.G{--ol:#8e1f63}.pill.pt{--ol:#8a4f00}
+#dieNum{--ol:#fff;color:#e2433f}
+.pawn .tag,.pcard.me::before,.choice .L{text-shadow:1px 0 var(--o),-1px 0 var(--o),0 1px var(--o),0 -1px var(--o)}
+.choice:nth-of-type(1) .L{--ol:#0c3270}.choice:nth-of-type(2) .L{--ol:#7a4300}
+</style>
+</head>
+<body>
+<div id="bgimg"></div>
+<div class="wrap">
+  <div class="head">
+    <img class="logo" src="assets/logo.webp" alt="We Should Save the World">
+    <div class="titlebar"><img class="leaf" src="assets/bush2.webp" alt="" style="left:-58px"><span class="titleplank">교사 관리 화면</span><img class="leaf" src="assets/bush2.webp" alt="" style="right:-58px;transform:scaleX(-1)"></div>
+    <a class="homebtn" href="/" target="_blank"><img src="assets/ic_home.webp" alt="">학생 화면 열기</a>
+  </div>
+  <nav class="tabs">
+    <button class="tab on" data-tab="rooms"><img src="assets/ic_group.webp" alt="">방 관리</button>
+    <button class="tab" data-tab="questions"><img src="assets/ic_book.webp" alt="">문제 관리</button>
+    <button class="tab" data-tab="progress"><svg viewBox="0 0 44 44"><rect x="5" y="24" width="8" height="15" rx="2" fill="#7fd0ff"/><rect x="18" y="15" width="8" height="24" rx="2" fill="#4fb3ff"/><rect x="31" y="6" width="8" height="33" rx="2" fill="#2f8fff"/></svg>진행 상황</button>
+    <button class="tab" data-tab="settings"><img src="assets/ic_gear.webp" alt="">설정</button>
+  </nav>
+
+  <!-- 방 관리 -->
+  <section id="tab-rooms">
+    <div id="setup" class="panel setup">
+      <div class="phead"><img class="ic" src="assets/ic_group.webp" alt=""><h2>우리 반 모둠방 만들기</h2></div>
+      <img class="leaf" src="assets/bush1.webp" alt="" style="width:120px;right:-40px;bottom:-26px">
+      <div class="pbody">
+        <p>모둠 수를 고르면 모둠마다 <b>5자리 입장 코드</b>가 만들어져요. 학생들은 학생 화면(<b id="studentUrl"></b>)에서 캐릭터와 이름을 고르고 모둠 코드를 입력해요.</p>
+        <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+          <label style="font-size:22px">모둠 수 <select id="count"><option>3</option><option>4</option><option selected>5</option><option>6</option><option>7</option><option>8</option></select></label>
+          <button class="imgbtn" id="create"><img src="assets/btn_create.webp" alt="방 만들기"></button>
+        </div>
+        <div id="notice" style="margin-top:10px;color:#c03744;font-size:18px"></div>
+      </div>
+    </div>
+    <div id="roomsView" class="grid2 hidden">
+      <div class="panel">
+        <div class="phead"><img class="ic" src="assets/ic_book.webp" alt=""><h2>방 목록</h2><span class="sp"></span>
+          <button class="sbtn orange" id="startAll">▶ 전체 시작</button><button class="sbtn green" id="addGroup">＋ 방 만들기</button></div>
+        <img class="leaf" src="assets/bush2.webp" alt="" style="width:80px;left:-30px;bottom:-24px">
+        <div class="pbody">
+          <table><thead><tr><th>방 이름</th><th>인원</th><th>상태</th><th>접속 코드</th><th>관리</th></tr></thead><tbody id="roomRows"></tbody></table>
+          <div class="actions"><button class="sbtn blue" id="copyCodes">📋 모둠 코드 전체 복사</button></div>
+        </div>
+      </div>
+      <div class="panel" id="detail">
+        <div class="phead"><img class="ic" src="assets/i_leaf.webp" alt=""><h2>선택된 방 정보</h2><span class="sp"></span>
+          <button class="sbtn blue" id="rename">✏️ 방 이름 변경</button><button class="sbtn red" id="remove">🗑 방 삭제</button></div>
+        <img class="leaf" src="assets/bush1.webp" alt="" style="width:110px;right:-36px;bottom:-26px">
+        <div class="pbody" id="detailBody"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 문제 관리 -->
+  <section id="tab-questions" class="hidden">
+    <div class="panel">
+      <div class="phead"><img class="ic" src="assets/ic_book.webp" alt=""><h2>문제 관리</h2><span class="sp"></span>
+        <button class="sbtn blue big" id="addQ">＋ 문제 추가</button><button class="sbtn gray" id="resetBank">↺ 기본 문제로</button></div>
+      <img class="leaf" src="assets/bush3.webp" alt="" style="width:130px;left:-40px;bottom:-24px">
+      <div class="pbody">
+        <div class="qtabs" id="qtabs"></div>
+        <div id="bankNote" style="font-size:16px;color:#6d5a40;margin-bottom:8px;font-family:var(--f)"></div>
+        <div class="qscroll"><table><thead id="qhead"></thead><tbody id="qrows"></tbody></table></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 진행 상황 -->
+  <section id="tab-progress" class="hidden">
+    <div class="panel">
+      <div class="phead"><svg width="46" height="46" viewBox="0 0 44 44"><rect x="5" y="24" width="8" height="15" rx="2" fill="#7fd0ff"/><rect x="18" y="15" width="8" height="24" rx="2" fill="#4fb3ff"/><rect x="31" y="6" width="8" height="33" rx="2" fill="#2f8fff"/></svg><h2>전체 진행 상황</h2></div>
+      <img class="leaf" src="assets/bush2.webp" alt="" style="width:80px;right:-30px;top:-26px">
+      <div class="pbody" id="progressBody"><div class="empty">먼저 [방 관리]에서 모둠방을 만들어 주세요.</div></div>
+    </div>
+  </section>
+
+  <!-- 설정 -->
+  <section id="tab-settings" class="hidden">
+    <div class="panel settings">
+      <div class="phead"><img class="ic" src="assets/ic_gear.webp" alt=""><h2>설정</h2></div>
+      <div class="pbody">
+        <h3 style="font-weight:800;margin:4px 0 8px">학생 접속 주소</h3>
+        <div class="urlbox"><span id="studentUrl2"></span><button class="sbtn blue" id="copyUrl">복사</button></div>
+        <p>칠판이나 화면에 주소를 띄워 주세요. 학생은 같은 주소에서 캐릭터 → 이름 → 모둠 코드 순서로 입장합니다.</p>
+        <h3 style="font-weight:800;margin:18px 0 8px">새 수업 시작</h3>
+        <p>지금 만든 모둠방을 두고, 새 학급 모둠방을 처음부터 만듭니다. (이전 방의 학생 화면은 그대로 남아요.)</p>
+        <button class="sbtn orange big" id="newClass">🔄 새 학급 모둠방 만들기</button>
+        <h3 style="font-weight:800;margin:18px 0 8px">알아 두세요</h3>
+        <p>• 방과 점수는 서버 메모리에 저장되어 서버가 다시 시작되면 사라집니다.<br>• 수정한 문제는 <b>이 브라우저</b>에 저장되어 다음 수업에도 그대로 쓰입니다. 새로 만드는 모둠방에 자동으로 적용돼요.<br>• 교사 화면 주소(/teacher.html)는 학생에게 알려 주지 마세요.</p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div id="modal" class="modal hidden"><div class="panel mbox"><div class="phead"><h2 id="mTitle"></h2></div><div class="pbody"><div id="mBody"></div><div class="actions" id="mActions"></div></div></div></div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const socket = io(), $ = x => document.getElementById(x);
+const CHAR_NAMES = ['눈표범','레서판다','바다거북','오랑우탄','우파루파','천산갑','사막여우','흰수염고래'];
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ls = { get(k){ try { return JSON.parse(localStorage.getItem(k)); } catch(e){ return null; } }, set(k,v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} } };
+const ss = { get(k){ try { return JSON.parse(sessionStorage.getItem(k)); } catch(e){ return null; } }, set(k,v){ try { sessionStorage.setItem(k, JSON.stringify(v)); } catch(e){} }, del(k){ try { sessionStorage.removeItem(k); } catch(e){} } };
+let ov = null, cred = null, sel = null, tab = 'rooms', bank = ls.get('earthBank28'), qtype = 'W';
+const url = location.origin + '/';
+$('studentUrl').textContent = url; $('studentUrl2').textContent = url;
+
+function toast(t){ const d = document.createElement('div'); d.className = 'toast'; d.textContent = t; document.body.appendChild(d); setTimeout(() => d.remove(), 2400); }
+function modal(title, body, buttons){ $('mTitle').textContent = title; $('mBody').innerHTML = body; $('mActions').innerHTML = '';
+  buttons.forEach(([label, cls, fn]) => { const b = document.createElement('button'); b.className = 'sbtn big ' + cls; b.textContent = label; b.onclick = () => { if (fn && fn() === false) return; $('modal').classList.add('hidden'); }; $('mActions').appendChild(b); });
+  $('modal').classList.remove('hidden'); setTimeout(() => $('mBody').querySelector('input,textarea')?.focus(), 50); }
+const ack = r => { if (r?.error) toast(r.error); };
+const barColor = p => p >= 75 ? 'linear-gradient(90deg,#5fd15a,#1f9be0)' : p >= 50 ? 'linear-gradient(90deg,#ffb347,#ff5e62)' : p >= 25 ? 'linear-gradient(90deg,#ffe259,#ffa751)' : 'linear-gradient(90deg,#4fc3f7,#1e88e5)';
+const bar = p => `<div class="bar"><div style="width:${Math.max(0, Math.min(100, p))}%;background:${barColor(p)}"></div></div>`;
+const status = g => g.finished ? '<span class="st end">종료</span>' : g.started ? '<span class="st run">진행중</span>' : '<span class="st wait">대기중</span>';
+
+/* 탭 */
+document.querySelectorAll('.tab').forEach(b => b.onclick = () => { tab = b.dataset.tab; document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === b));
+  ['rooms','questions','progress','settings'].forEach(t => $('tab-' + t).classList.toggle('hidden', t !== tab)); render(); });
+
+/* ── 방 관리 ── */
+function enter(o){ ov = o; $('setup').classList.add('hidden'); $('roomsView').classList.remove('hidden'); if (!sel || !o.groups.some(g => g.code === sel)) sel = o.groups[0]?.code || null; render(); }
+function render(){
+  if (tab === 'questions') return renderBank();
+  if (!ov) return;
+  const gs = ov.groups;
+  if (sel && !gs.some(g => g.code === sel)) sel = gs[0]?.code || null;
+  $('roomRows').innerHTML = gs.map(g => `<tr class="${g.code === sel ? 'sel' : ''}"><td>${esc(g.name)}</td><td>${g.players.filter(p => p.online).length}/8</td><td>${status(g)}</td><td class="code">${esc(g.code)}</td>
+    <td><button class="sbtn blue" data-sel="${g.code}">상세</button>${g.started && !g.finished ? `<button class="sbtn red" data-end="${g.code}">종료</button>` : `<button class="sbtn green" data-start="${g.code}" ${g.players.some(p => p.online) ? '' : 'disabled'}>시작</button>`}</td></tr>`).join('')
+    || '<tr><td colspan="5">모둠방이 없습니다.</td></tr>';
+  const g = gs.find(x => x.code === sel);
+  if (!g) $('detailBody').innerHTML = '<div class="empty">왼쪽에서 방을 선택하세요.</div>';
+  else $('detailBody').innerHTML = `<div class="info4"><div><small>방 이름</small><b>${esc(g.name)}</b></div><div><small>접속 코드</small><b class="code" style="font-size:30px">${esc(g.code)}</b></div><div><small>최대 인원</small><b>8명</b></div><div><small>현재 상태</small>${status(g)}<div style="font-size:15px;color:#6d5a40;margin-top:4px">${g.started && !g.finished ? '차례: ' + esc(g.turn) : ''}</div></div></div>
+    <div class="subhead"><img src="assets/i_leaf.webp" alt="">참가 학생 목록 (${g.players.length} / 8)</div>
+    <table><thead><tr><th>번호</th><th>학생 이름</th><th>캐릭터</th><th>현재 위치</th><th>진행 상황</th><th class="hide-sm">점수</th><th>상태</th><th>관리</th></tr></thead><tbody>
+    ${g.players.length ? g.players.map((p,i) => `<tr><td>${i+1}</td><td>${esc(p.name)}</td><td><img class="avt" src="assets/av${p.avatar}.webp" alt="${CHAR_NAMES[p.avatar]}" title="${CHAR_NAMES[p.avatar]}"></td><td>${p.pos}</td><td>${bar(p.pos / (ov.last || 28) * 100)}</td><td class="hide-sm">⭐ ${p.score}</td>
+      <td class="${p.finished ? 'txt-fin' : p.online ? 'txt-on' : 'txt-off'}">${p.finished ? '완주' : p.online ? '접속중' : '연결 끊김'}</td><td><button class="sbtn red" data-kick="${esc(p.id)}" data-name="${esc(p.name)}">퇴장</button></td></tr>`).join('') : '<tr><td colspan="8" style="padding:24px">학생 입장을 기다리는 중이에요. 코드 <b class="code">' + esc(g.code) + '</b> 를 알려 주세요.</td></tr>'}
+    </tbody></table>
+    <div class="actions">${!g.started ? `<button class="sbtn green big" data-start="${g.code}" ${g.players.some(p => p.online) ? '' : 'disabled'}>▶ 게임 시작</button>` : ''}
+      ${g.started ? `<button class="sbtn orange big" data-reset="${g.code}">🔄 다시 하기</button>` : ''}${g.started && !g.finished ? `<button class="sbtn red big" data-end="${g.code}">■ 게임 종료</button>` : ''}</div>
+    ${g.log.length ? `<div style="margin-top:10px;font-size:15px;color:#6d5a40;font-family:var(--f)">최근 기록: ${g.log.map(esc).join(' · ')}</div>` : ''}`;
+  document.querySelectorAll('[data-sel]').forEach(b => b.onclick = () => { sel = b.dataset.sel; render(); });
+  document.querySelectorAll('[data-start]').forEach(b => b.onclick = () => socket.emit('startGroup', { code: b.dataset.start }, ack));
+  document.querySelectorAll('[data-end]').forEach(b => b.onclick = () => modal('게임 종료', '이 모둠의 게임을 지금 끝낼까요? 점수는 그대로 남아요.', [['종료하기','red',() => socket.emit('endGroup', { code: b.dataset.end }, ack)],['취소','gray']]));
+  document.querySelectorAll('[data-reset]').forEach(b => b.onclick = () => modal('다시 하기', '이 모둠의 점수와 위치를 모두 0으로 되돌리고 대기 상태로 만들까요?', [['다시 하기','orange',() => socket.emit('resetGroup', { code: b.dataset.reset }, ack)],['취소','gray']]));
+  document.querySelectorAll('[data-kick]').forEach(b => b.onclick = () => modal('학생 퇴장', `<b>${b.dataset.name}</b> 학생을 이 모둠에서 내보낼까요?`, [['퇴장','red',() => socket.emit('kickPlayer', { code: sel, id: b.dataset.kick }, ack)],['취소','gray']]));
+  renderProgress();
+}
+$('create').onclick = () => { $('create').disabled = true; socket.emit('createClass', { groups: Number($('count').value), bank }, r => { $('create').disabled = false; if (r.error) return $('notice').textContent = r.error; cred = { classCode: r.classCode, secret: r.secret }; ss.set('earthTeacher', cred); sel = null; enter(r.overview); }); };
+$('addGroup').onclick = () => socket.emit('addGroup', {}, r => { if (r.error) toast(r.error); else { sel = r.code; toast('새 모둠방을 만들었어요.'); } });
+$('startAll').onclick = () => socket.emit('startAll', {}, r => toast(r.error || `${r.count}개 모둠의 게임을 시작했어요.`));
+$('copyCodes').onclick = () => { const t = ov.groups.map(g => `${g.name}: ${g.code}`).join('\n'); navigator.clipboard?.writeText(t).then(() => toast('모둠 코드를 복사했어요.')).catch(() => modal('모둠 코드', `<pre style="font-size:20px">${esc(t)}</pre>`, [['닫기','blue']])); };
+$('rename').onclick = () => { const g = ov?.groups.find(x => x.code === sel); if (!g) return;
+  modal('방 이름 변경', `<label>새 이름</label><input type="text" id="newName" maxlength="20" value="${esc(g.name)}">`, [['저장','blue',() => socket.emit('renameGroup', { code: sel, name: $('newName').value }, ack)],['취소','gray']]); };
+$('remove').onclick = () => { const g = ov?.groups.find(x => x.code === sel); if (!g) return;
+  modal('방 삭제', `<b>${esc(g.name)}</b> (${esc(g.code)}) 방을 삭제할까요?<br>들어와 있는 학생들은 첫 화면으로 돌아갑니다.`, [['삭제','red',() => socket.emit('removeGroup', { code: sel }, ack)],['취소','gray']]); };
+
+/* ── 진행 상황 ── */
+function renderProgress(){
+  if (!ov) return;
+  const gs = ov.groups, ps = gs.flatMap(g => g.players);
+  const crowns = ['crown1','crown2','crown3'];
+  const ranked = gs.filter(g => g.players.length).sort((a,b) => b.average - a.average || b.total - a.total);
+  const stu = ps.slice().sort((a,b) => b.score - a.score).slice(0, 10);
+  $('progressBody').innerHTML = `<div class="stats">
+      <div><img src="assets/ic_group.webp" alt=""><div><small>접속 학생</small><b>${ps.filter(p => p.online).length}명</b></div></div>
+      <div><img src="assets/i_star.webp" alt=""><div><small>전체 점수</small><b>${ps.reduce((n,p) => n + p.score, 0)}점</b></div></div>
+      <div><img src="assets/fx_ok.webp" alt=""><div><small>정답 수</small><b>${ps.reduce((n,p) => n + p.correct, 0)}개</b></div></div>
+      <div><img src="assets/sign_goal.webp" alt=""><div><small>완주 학생</small><b>${ps.filter(p => p.finished).length}명</b></div></div></div>
+    <table><thead><tr><th>방 이름</th><th>인원</th><th>평균 진행도</th><th>정답 수</th><th>보석 획득</th><th class="hide-sm">합계 / 평균</th><th>상태</th></tr></thead><tbody>
+    ${gs.map(g => `<tr><td>${esc(g.name)}</td><td>${g.players.length}</td><td style="min-width:150px">${bar(g.progress)}</td><td>${g.correct}</td><td class="gemcell"><img src="assets/ic_gem.webp" alt="">${g.gems}</td><td class="hide-sm">${g.total}점 / ${g.average}점</td><td class="${g.finished ? 'txt-fin' : g.started ? 'txt-on' : 'txt-off'}">${g.finished ? '종료' : g.started ? '진행중' : '대기중'}</td></tr>`).join('')}
+    </tbody></table>
+    <div class="grid2" style="margin-top:18px;gap:18px">
+      <div><div class="subhead"><img src="assets/crown1.webp" alt="">모둠 순위 (평균 점수)</div><table><tbody>
+        ${ranked.map((g,i) => `<tr><td style="width:60px">${i < 3 ? `<img class="crown" src="assets/${crowns[i]}.webp" alt="${i+1}위">` : (i+1) + '위'}</td><td class="l">${esc(g.name)} <span style="color:#7a6548">(${g.players.length}명)</span></td><td>평균 <b>${g.average}</b>점</td><td class="hide-sm">합계 ${g.total}점</td></tr>`).join('') || '<tr><td>학생이 들어온 모둠이 없어요.</td></tr>'}
+      </tbody></table></div>
+      <div><div class="subhead"><img src="assets/i_star.webp" alt="">학생 점수 TOP 10</div><table><tbody>
+        ${stu.length ? stu.map((p,i) => `<tr><td style="width:60px">${i+1}</td><td><img class="avt" src="assets/av${p.avatar}.webp" alt=""></td><td class="l">${esc(p.name)}</td><td>⭐ ${p.score}</td><td class="gemcell"><img src="assets/ic_gem.webp" alt="">${p.gems}</td></tr>`).join('') : '<tr><td>아직 학생이 없어요.</td></tr>'}
+      </tbody></table></div></div>
+    <p style="font-size:15px;color:#6d5a40;font-family:var(--f)">모둠마다 인원이 다를 수 있어 순위는 평균 점수로 매깁니다.</p>`;
+}
+
+/* ── 문제 관리 ── */
+const TYPES = { W: ['card_w','W · 단어 쓰기'], S: ['card_s','S · 문장 고르기'], G: ['card_g','보석 · 읽기 문장'] };
+function saveBank(msg){ ls.set('earthBank28', bank); socket.emit('setBank', { bank }, r => { if (r?.error) toast(r.error); else toast(msg + (r.live ? ' (진행 중인 수업에 바로 적용)' : '')); }); renderBank(); }
+function renderBank(){
+  if (!bank) { $('qrows').innerHTML = '<tr><td>불러오는 중…</td></tr>'; return; }
+  $('qtabs').innerHTML = Object.entries(TYPES).map(([k,[img,label]]) => `<button class="qtab ${k === qtype ? 'on' : ''}" data-qt="${k}"><img src="assets/${img}.webp" alt="">${label}<span class="cnt">(${bank[k].filter(x => x.on).length}/${bank[k].length})</span></button>`).join('');
+  document.querySelectorAll('[data-qt]').forEach(b => b.onclick = () => { qtype = b.dataset.qt; renderBank(); });
+  $('bankNote').textContent = { W: '정답이 여러 개면 / 로 구분해서 쓰세요. 대소문자·마침표는 채점에 영향을 주지 않아요.', S: '두 문장 중 지구에 더 좋은 문장(정답)을 골라 두세요. 학생 화면에는 A/B로 나옵니다.', G: '보석 칸에 도착한 학생이 소리 내어 읽는 문장이에요. 점수는 1~3점 중 무작위입니다.' }[qtype] + ' 사용을 끈 문제는 출제되지 않아요. 기본은 모두 28문제이고, 칸에 도착할 때마다 그중 하나가 무작위로(한 판 안에서는 겹치지 않게) 나와요.';
+  const list = bank[qtype];
+  $('qhead').innerHTML = qtype === 'W' ? '<tr><th>번호</th><th>문제 내용</th><th>정답</th><th>사용 여부</th><th>관리</th></tr>' : qtype === 'S' ? '<tr><th>번호</th><th>문장 A</th><th>문장 B</th><th>정답</th><th>사용 여부</th><th>관리</th></tr>' : '<tr><th>번호</th><th>읽기 문장</th><th>사용 여부</th><th>관리</th></tr>';
+  $('qrows').innerHTML = list.map((x,i) => `<tr><td>${i+1}</td>${qtype === 'W' ? `<td class="qtext">${esc(x.q)}</td><td class="qtext"><span class="ok">${esc(x.a.split('|').join(' / '))}</span></td>` : qtype === 'S' ? `<td class="qtext">${x.ans === 0 ? '<span class="ok">✔ </span>' : ''}${esc(x.a)}</td><td class="qtext">${x.ans === 1 ? '<span class="ok">✔ </span>' : ''}${esc(x.b)}</td><td>${'AB'[x.ans]}</td>` : `<td class="qtext">${esc(x.t)}</td>`}
+    <td style="white-space:nowrap"><span class="${x.on ? 'txt-on' : 'txt-off'}">${x.on ? '사용중' : '사용 안 함'}</span> <button class="switch ${x.on ? '' : 'off'}" data-tg="${i}" aria-label="사용 여부"></button></td>
+    <td style="white-space:nowrap"><button class="sbtn blue" data-ed="${i}">수정</button><button class="sbtn red" data-del="${i}">삭제</button></td></tr>`).join('') || '<tr><td colspan="6">문제가 없어요. [문제 추가]를 눌러 주세요.</td></tr>';
+  document.querySelectorAll('[data-tg]').forEach(b => b.onclick = () => { const x = list[b.dataset.tg]; x.on = !x.on; saveBank(x.on ? '사용으로 바꿨어요.' : '사용하지 않게 바꿨어요.'); });
+  document.querySelectorAll('[data-ed]').forEach(b => b.onclick = () => editQ(Number(b.dataset.ed)));
+  document.querySelectorAll('[data-del]').forEach(b => b.onclick = () => modal('문제 삭제', `${b.dataset.del * 1 + 1}번 문제를 삭제할까요?`, [['삭제','red',() => { list.splice(Number(b.dataset.del), 1); saveBank('삭제했어요.'); }],['취소','gray']]));
+}
+function editQ(i){
+  const isNew = i === undefined, x = isNew ? null : bank[qtype][i];
+  let body = '';
+  if (qtype === 'W') body = `<label>문제 (빈칸은 ____ 로)</label><textarea id="fQ">${esc(x?.q || '')}</textarea><label>정답</label><input type="text" id="fA" value="${esc((x?.a || '').split('|').join(' / '))}"><div class="hint">여러 정답은 / 로 구분 (예: a bus / bus / subway)</div>`;
+  else if (qtype === 'S') body = `<label>문장 A</label><input type="text" id="fA" value="${esc(x?.a || '')}"><label>문장 B</label><input type="text" id="fB" value="${esc(x?.b || '')}"><label>지구에 더 좋은 문장(정답)</label><div class="radios"><label><input type="radio" name="fAns" value="0" ${x?.ans === 1 ? '' : 'checked'}> A</label><label><input type="radio" name="fAns" value="1" ${x?.ans === 1 ? 'checked' : ''}> B</label></div>`;
+  else body = `<label>읽기 문장</label><textarea id="fT">${esc(x?.t || '')}</textarea>`;
+  modal(isNew ? '문제 추가 · ' + TYPES[qtype][1] : '문제 수정 · ' + TYPES[qtype][1], body, [['저장','blue',() => {
+    let item;
+    if (qtype === 'W') { const q = $('fQ').value.trim(), a = $('fA').value.split('/').map(s => s.trim()).filter(Boolean).join('|'); if (!q || !a) { toast('문제와 정답을 모두 입력하세요.'); return false; } item = { q, a, on: x ? x.on : true }; }
+    else if (qtype === 'S') { const a = $('fA').value.trim(), b = $('fB').value.trim(); if (!a || !b) { toast('두 문장을 모두 입력하세요.'); return false; } item = { a, b, ans: Number(document.querySelector('[name=fAns]:checked').value), on: x ? x.on : true }; }
+    else { const t = $('fT').value.trim(); if (!t) { toast('문장을 입력하세요.'); return false; } item = { t, on: x ? x.on : true }; }
+    if (isNew) bank[qtype].push(item); else bank[qtype][i] = item;
+    saveBank(isNew ? '문제를 추가했어요.' : '수정했어요.');
+  }],['취소','gray']]);
+}
+$('addQ').onclick = () => editQ();
+$('resetBank').onclick = () => modal('기본 문제로 되돌리기', '수정한 문제를 모두 지우고 기본 28문제(단어 10 · 문장 10 · 보석 8)로 되돌릴까요?', [['되돌리기','orange',() => socket.emit('getDefaultBank', {}, b => { bank = b; saveBank('기본 문제로 되돌렸어요.'); })],['취소','gray']]);
+
+/* ── 설정 ── */
+$('copyUrl').onclick = () => navigator.clipboard?.writeText(url).then(() => toast('주소를 복사했어요.')).catch(() => toast(url));
+$('newClass').onclick = () => modal('새 학급 모둠방', '새 모둠방을 만드는 화면으로 갈까요?', [['이동','orange',() => { ss.del('earthTeacher'); cred = null; ov = null; sel = null; $('roomsView').classList.add('hidden'); $('setup').classList.remove('hidden'); document.querySelector('[data-tab=rooms]').click(); }],['취소','gray']]);
+
+/* ── 소켓 ── */
+socket.on('overview', o => { if (cred && o.classCode === cred.classCode) { ov = o; render(); } });
+socket.on('connect', () => {
+  if (!bank) socket.emit('getDefaultBank', {}, b => { bank = b; if (tab === 'questions') renderBank(); });
+  const c = cred || ss.get('earthTeacher');
+  if (c) socket.emit('teacherReconnect', c, r => { if (r.ok) { cred = c; enter(r.overview); } else { ss.del('earthTeacher'); $('notice').textContent = '서버가 다시 시작되어 이전 모둠방이 사라졌어요. 새로 만들어 주세요.'; } });
+});
+socket.on('disconnect', () => toast('서버 연결이 끊겼어요. 다시 연결하는 중…'));
+</script>
+</body>
+</html>
